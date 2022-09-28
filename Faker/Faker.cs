@@ -12,60 +12,124 @@ public class Faker
 
         if (!myType.IsPrimitive)
         {
-            T obj = (T) Activator.CreateInstance(typeof(T), new object[] { });
-
             try
             {
-                //Fields
-                foreach (var field in myType.GetFields())
+                ConstructorInfo constructor = FindConstructorWithMaxIndex(myType);
+                var parameters = constructor.GetParameters();
+                var parametersInvokeInConstructor = new object[parameters.Length];
+
+                for (var index = 0; index < parameters.Length; index++)
                 {
-                    if (field.IsPublic)
+                    parametersInvokeInConstructor[index] = ReturnValue(parameters[index].ParameterType);
+                }
+
+                T obj = (T) Activator.CreateInstance(typeof(T), parametersInvokeInConstructor);
+
+                try
+                {
+                    //Fields
+                    foreach (var field in myType.GetFields())
                     {
-                        var genericType = field.FieldType.GenericTypeArguments;
-                        
-                        if (genericType.Length > 0 && field.FieldType == typeof(List<>).MakeGenericType(genericType))
+                        if (field.IsPublic)
                         {
-                            var listGenerator = new ListGenerator();
+                            var genericType = field.FieldType.GenericTypeArguments;
 
-                            var method = typeof(ListGenerator).GetMethod("Generate");
-                            var generic = method.MakeGenericMethod(genericType);
-                            var generatedList = generic.Invoke(listGenerator, new[] {this});
+                            if (genericType.Length > 0 &&
+                                field.FieldType == typeof(List<>).MakeGenericType(genericType))
+                            {
+                                var listGenerator = new ListGenerator();
 
-                            field.SetValue(obj, generatedList);
+                                var method = typeof(ListGenerator).GetMethod("Generate");
+                                var generic = method.MakeGenericMethod(genericType);
+                                var generatedList = generic.Invoke(listGenerator, new[] {this});
+
+                                field.SetValue(obj, generatedList);
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    field.SetValue(obj, ReturnValue(field.FieldType));
+                                }
+                                catch (Exception e)
+                                {
+                                    field.SetValue(obj, default);
+                                }
+                            }
                         }
-                        else
+                    }
+
+                    //Properties
+                    foreach (var property in myType.GetProperties())
+                    {
+                        if (property.GetSetMethod() != null)
                         {
-                            field.SetValue(obj, ReturnValue(field.FieldType));
+                            var genericType = property.PropertyType.GenericTypeArguments;
+
+                            if (genericType.Length > 0 &&
+                                property.PropertyType == typeof(List<>).MakeGenericType(genericType))
+                            {
+                                var listGenerator = new ListGenerator();
+
+                                var method = typeof(ListGenerator).GetMethod("Generate");
+                                var generic = method.MakeGenericMethod(genericType);
+                                var generatedList = generic.Invoke(listGenerator, new[] {this});
+
+                                property.SetValue(obj, generatedList);
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    property.SetValue(obj, ReturnValue(property.PropertyType));
+                                }
+                                catch (Exception e)
+                                {
+                                    property.SetValue(obj, default);
+                                    // .net поставит дефолтное значение
+                                }
+                            }
                         }
                     }
                 }
-
-                //Properties
-                foreach (var property in myType.GetProperties())
+                catch (Exception e)
                 {
-                    if (property.GetSetMethod() != null)
-                    {
-                        if (property.PropertyType == typeof(List<T>))
-                        {
-                            var listGenerator = new ListGenerator();
-                            property.SetValue(obj, listGenerator.Generate<T>(this));
-                        }
-                        else
-                        {
-                            property.SetValue(obj, ReturnValue(property.PropertyType));
-                        }
-                    }
+                    Console.WriteLine("Exception : {0} ", e.StackTrace);
                 }
+
+                return obj;
             }
             catch (Exception e)
             {
-                Console.WriteLine("Exception : {0} ", e.StackTrace);
+                return default(T);
             }
-
-            return obj;
         }
 
         return (T) Activator.CreateInstance(typeof(T));
+    }
+
+    private ConstructorInfo FindConstructorWithMaxIndex(Type myType)
+    {
+        if (myType.GetConstructors().Length > 0)
+        {
+            int constructorWithMaxIndex = 0;
+            int max = 0;
+
+            for (int i = 0; i < myType.GetConstructors().Length; i++)
+            {
+                int paramsSize = myType.GetConstructors()[i].GetParameters().Length;
+
+                if (paramsSize > max)
+                {
+                    max = paramsSize;
+                    constructorWithMaxIndex = i;
+                }
+            }
+
+            return myType.GetConstructors()[constructorWithMaxIndex];
+        }
+
+        throw new Exception();
     }
 
     private object ReturnValue(Type type)
